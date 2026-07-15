@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>升降機控制台</title>
+    
+    <!-- 1. 最頂端的密碼驗證 -->
+    <script>
+        function checkPassword() {
+            var correctPassword = "123456";
+            while (true) {
+                var password = prompt("請輸入密碼：");
+                if (password === correctPassword) { break; }
+                if (password === null || password === "") { continue; }
+                alert("密碼錯誤，請重新輸入！");
+            }
+        }
+        //checkPassword();
+    </script>
+
+    <!-- 2. 引進 MQTT 庫 -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+    <!-- 3. 專為操作人員設計的大按鈕、高對比樣式 -->
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 15px;
+            color: #333;
+        }
+        .container {
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 10px;
+            border-left: 5px solid #007bff;
+            padding-left: 8px;
+        }
+        /* 目前高度大字體顯示 */
+        .height-display {
+            font-size: 48px;
+            font-weight: bold;
+            color: #d9534f;
+            text-align: center;
+            padding: 5px 0;
+        }
+        .unit {
+            font-size: 20px;
+            color: #777;
+            margin-left: 5px;
+        }
+        /* 輸入框與按鈕並排 */
+        .input-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 8px;
+        }
+        input[type="number"] {
+            flex: 1;
+            font-size: 20px;
+            padding: 10px;
+            border: 2px solid #ccc;
+            border-radius: 5px;
+            text-align: center;
+        }
+        button {
+            font-size: 18px;
+            font-weight: bold;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:active {
+            background-color: #0056b3;
+        }
+
+        /* --- 升降機動態示意圖樣式 --- */
+        .status-badge {
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            background-color: #e9ecef;
+            color: #495057;
+            border: 1px solid #ced4da;
+        }
+        .shaft-container {
+            position: relative;
+            width: 100%;
+            height: 320px; /* 軌道物理高度 */
+            background-color: #e0e0e0;
+            border: 3px solid #495057;
+            border-radius: 8px;
+            margin: 15px 0;
+            overflow: hidden;
+        }
+        .ticks {
+            position: absolute;
+            left: 10px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            color: #6c757d;
+            font-size: 11px;
+            font-family: monospace;
+            z-index: 1;
+            padding: 5px 0;
+            box-sizing: border-box;
+        }
+        /* 藍色車體/平台 */
+        .lift-car {
+            position: absolute;
+            left: 60px;
+            right: 15px;
+            height: 35px; /* 平台厚度 */
+            background-color: #007bff;
+            border: 2px solid #004085;
+            border-radius: 4px;
+            bottom: 0px; /* 由 JS 改變百分比 */
+            transition: bottom 0.4s ease-out; /* 讓升降移動更平滑流暢 */
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 13px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+        }
+        /* 紅色目標虛線 */
+        .target-line {
+            position: absolute;
+            left: 60px;
+            right: 15px;
+            border-top: 3px dashed #dc3545;
+            bottom: 0px; /* 由 JS 改變百分比 */
+            transition: bottom 0.4s ease-out;
+            z-index: 2;
+        }
+        .target-label {
+            position: absolute;
+            right: 5px;
+            top: -20px;
+            background: #dc3545;
+            color: white;
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+
+    <!-- 1. 目前實際高度顯示 -->
+    <div class="card">
+        <div class="title">目前高度</div>
+        <div class="height-display">
+            <span id="current-height">0.0</span><span class="unit">cm</span>
+        </div>
+    </div>
+
+    <!-- 2. 運行狀態動態示意圖 -->
+    <div class="card">
+        <div class="title">運行狀態示意圖</div>
+        <div id="status-light" class="status-badge">確認狀態中...</div>
+        
+        <div class="shaft-container">
+            <!-- 刻度標示 (假設升降機高度範圍 0 ~ 400cm) -->
+            <div class="ticks">
+                <span>400cm</span>
+                <span>300cm</span>
+                <span>200cm</span>
+                <span>100cm</span>
+                <span>0cm</span>
+            </div>
+            
+            <!-- 紅色目標虛線 -->
+            <div id="visual-target" class="target-line" style="bottom: 0%;">
+                <span class="target-label">目標: <span id="target-label-val">0</span>cm</span>
+            </div>
+            
+            <!-- 藍色實際車體 -->
+            <div id="visual-car" class="lift-car" style="bottom: 0%;">
+                目前車體: <span id="car-label-val">0</span>cm
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 目標高度設定（輸入欄位） -->
+    <div class="card">
+        <div class="title">輸入目標高度</div>
+        <div class="input-group">
+            <input type="number" id="target-height-input" placeholder="請輸入高度" min="0" max="400">
+            <button onclick="sendTargetHeight()">設定</button>
+        </div>
+    </div>
+
+    <!-- 4. 車體高度設定（輸入欄位） -->
+    <div class="card">
+        <div class="title">輸入車體高度</div>
+        <div class="input-group">
+            <input type="number" id="car-height-input" placeholder="請輸入高度" min="0" max="400">
+            <button onclick="sendCarHeight()">設定</button>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // 物理上限高度設定 (400 cm)
+    var MAX_HEIGHT = 400; 
+
+    // 全域變數，用來記錄當前數值
+    var currentHeight = 0; // 實際高度 (後續從 MQTT 接收)
+    var targetHeight = 0;  // 目標高度 (操作員輸入)
+
+    // 核心視覺更新函式
+    function updateVisuals() {
+        // 將實際 cm 計算為 CSS 的 bottom 百分比位置 (限制在 0% 到 90% 之間，避免超出版面)
+        var currentPct = Math.min(Math.max((currentHeight / MAX_HEIGHT) * 90, 0), 90);
+        var targetPct = Math.min(Math.max((targetHeight / MAX_HEIGHT) * 90, 0), 90);
+
+        // 1. 更新藍色平台與紅色虛線的物理位置
+        document.getElementById("visual-car").style.bottom = currentPct + "%";
+        document.getElementById("visual-target").style.bottom = targetPct + "%";
+
+        // 2. 更新文字標籤內容
+        document.getElementById("current-height").innerText = currentHeight.toFixed(1);
+        document.getElementById("car-label-val").innerText = currentHeight.toFixed(0);
+        document.getElementById("target-label-val").innerText = targetHeight.toFixed(0);
+
+        // 3. 狀態燈判斷邏輯
+        var statusLight = document.getElementById("status-light");
+        var diff = targetHeight - currentHeight;
+
+        if (Math.abs(diff) <= 2) { // 誤差 2cm 內視為已到達
+            statusLight.innerText = "● 已到達指定高度";
+            statusLight.style.backgroundColor = "#d4edda"; // 綠色背景
+            statusLight.style.color = "#155724";
+        } else if (diff > 2) {
+            statusLight.innerText = "▲ 升降機上升中 (差距: " + diff.toFixed(0) + " cm)";
+            statusLight.style.backgroundColor = "#fff3cd"; // 黄色背景
+            statusLight.style.color = "#856404";
+        } else {
+            statusLight.innerText = "▼ 升降機下降中 (差距: " + Math.abs(diff).toFixed(0) + " cm)";
+            statusLight.style.backgroundColor = "#cce5ff"; // 藍色背景
+            statusLight.style.color = "#004085";
+        }
+    }
+
+    // 當操作員輸入目標高度並按「設定」時
+    function sendTargetHeight() {
+        var val = document.getElementById("target-height-input").value;
+        if(val === "") {
+            alert("請先輸入目標高度！");
+            return;
+        }
+        
+        // 轉為數字並更新本地變數
+        targetHeight = parseFloat(val);
+        
+        // 更新圖形呈現
+        updateVisuals();
+
+        console.log("準備發送目標高度至 MQTT：" + targetHeight);
+        // 這裡待會接上 MQTT 發送：
+        // client.publish("lift/set/target", targetHeight.toString());
+    }
+
+    // 當操作員輸入車體高度並按「設定」時
+    function sendCarHeight() {
+        var val = document.getElementById("car-height-input").value;
+        if(val === "") {
+            alert("請先輸入車體高度！");
+            return;
+        }
+
+        console.log("準備發送車體高度至 MQTT：" + val);
+        // 這裡待會接上 MQTT 發送：
+        // client.publish("lift/set/car", val);
+    }
+
+    // 初始化畫面狀態
+    updateVisuals();
+</script>
+
+</body>
+</html>
