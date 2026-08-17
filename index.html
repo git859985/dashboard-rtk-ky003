@@ -82,14 +82,17 @@ Released under the MIT license: http://jsbin.mit-license.org
 
 <div class="window">
     <div class="title-bar">RTK 控制面板 (KY003)</div>
-    <div style="font-size: 14px; font-weight: bold; margin-bottom: 5px; display: flex; justify-content: space-between; align-items: center;">
-        <div>
+    <div style="font-size: 14px; font-weight: bold; margin-bottom: 5px; display: flex; align-items: center; white-space: nowrap;">
+        <div style="flex: 1; text-align: left;">
             連線狀態: <span id="status">正在連線至 MQTTGO...</span>
         </div>
-        <div>
-            運行時間: <span id="rtk_uptime" class="val" style="display: inline-block; text-align: right; width: 100px;"></span>
+        <div style="flex: 1; text-align: left;">
+            運行時間: <span id="rtk_uptime" class="val"></span>
         </div>
-    </div>    
+        <div style="flex: 1; text-align: left;">
+            溫度: <span id="rtk_tempC" class="val"></span>
+        </div>      
+    </div> 
 
     <div class="group">
         <div class="group-title">NMEA即時狀態(5秒更新)</div>
@@ -377,7 +380,13 @@ Released under the MIT license: http://jsbin.mit-license.org
                     } else {
                         document.getElementById('rtk_uptime').textContent = `${h}:${m}:${s}`;
                     }
-                }               
+                }
+                //6. LM35D溫度
+                if (data.TempC !== null) {
+                    //document.getElementById('rtk_tempC').textContent = data.TempC
+                  document.getElementById('rtk_tempC').textContent = Number(data.TempC).toFixed(1);
+
+                }                 
                 
             } catch (e) {
                 console.warn("非JSON數據，已自動忽略。");
